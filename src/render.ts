@@ -3,7 +3,9 @@
  * single draw call per frame, no per-frame allocation in the hot path.
  */
 
-import { BALLAST, EMPTY, SIZE, type Board } from './board.js';
+import { BALLAST, EMPTY, SIZE, idx, type Board } from './board.js';
+import { Fx as Particles, clamp01, easeOutBack } from './fx.js';
+import type { Levers } from './levers.js';
 import type { Cell, Piece } from './pieces.js';
 import { pieceSize } from './pieces.js';
 
@@ -79,6 +81,8 @@ export interface RenderInput {
   drag: DragState | null;
   fx: Fx[];
   now: number;
+  /** frame delta in ms, clamped by the caller */
+  dtMs: number;
   /** dims the board behind a modal */
   dimmed: boolean;
 }
@@ -86,15 +90,88 @@ export interface RenderInput {
 export class Renderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
+  private readonly levers: Levers;
   private dpr = 1;
   layout: Layout;
 
-  constructor(canvas: HTMLCanvasElement) {
+  /** the bubble layer */
+  readonly particles: Particles;
+  /** performance.now() when each cell was filled, for the spring-in pop */
+  private placedAt = new Float64Array(SIZE * SIZE);
+  /** when each tray slot last refilled, for the staggered pop */
+  private trayPopAt: number[] = [-1e9, -1e9, -1e9];
+  /** fractional bubble emitters, so rates below 1/frame still work */
+  private ambientDebt = 0;
+  private meterDebt = 0;
+
+  constructor(canvas: HTMLCanvasElement, levers: Levers) {
     this.canvas = canvas;
+    this.levers = levers;
+    this.particles = new Particles(levers.maxParticles);
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('2d canvas unavailable');
     this.ctx = ctx;
     this.layout = this.resize();
+  }
+
+  /** Called by the game wiring when a piece lands, so those cells spring in. */
+  notePlacement(cells: readonly Cell[], now: number): void {
+    for (const cell of cells) this.placedAt[idx(cell.r, cell.c)] = now;
+  }
+
+  /** Called when ballast arrives, so it thuds in rather than appearing. */
+  noteSurge(cells: readonly Cell[], now: number): void {
+    this.notePlacement(cells, now);
+    const l = this.layout;
+    for (const cell of cells) {
+      const { x, y } = this.cellCentre(cell.r, cell.c);
+      this.particles.ring(x, y, l.cell * 0.3, '#f2614f', this.levers.shockRingMs * 0.7);
+    }
+    this.particles.kick(this.levers.screenShakePx, 260);
+  }
+
+  noteTrayRefill(now: number): void {
+    for (let i = 0; i < 3; i++) this.trayPopAt[i] = now + i * 70;
+  }
+
+  /** Burst the cleared cells into bubbles, plus one ring per cleared line. */
+  noteClear(cells: readonly Cell[], rows: number[], cols: number[], now: number): void {
+    const l = this.layout;
+    for (const cell of cells) {
+      const { x, y } = this.cellCentre(cell.r, cell.c);
+      this.particles.burst(x, y, l.cell, '#bfe9ff', this.levers.burstBubblesPerCell);
+      this.placedAt[idx(cell.r, cell.c)] = 0;
+    }
+    for (const r of rows) {
+      this.particles.ring(
+        l.boardX + l.boardSize / 2,
+        l.boardY + (r + 0.5) * l.cell,
+        l.cell * 0.6,
+        '#7ee0a8',
+        this.levers.shockRingMs,
+      );
+    }
+    for (const c of cols) {
+      this.particles.ring(
+        l.boardX + (c + 0.5) * l.cell,
+        l.boardY + l.boardSize / 2,
+        l.cell * 0.6,
+        '#7ee0a8',
+        this.levers.shockRingMs,
+      );
+    }
+    this.particles.kick(this.levers.screenShakePx * 0.6, 200);
+    void now;
+  }
+
+  resetAnimations(): void {
+    this.placedAt.fill(0);
+    this.particles.clear();
+  }
+
+  private cellCentre(r: number, c: number): { x: number; y: number } {
+    const l = this.layout;
+    return { x: l.boardX + (c + 0.5) * l.cell, y: l.boardY + (r + 0.5) * l.cell };
   }
 
   resize(): Layout {
@@ -170,17 +247,67 @@ export class Renderer {
     const ctx = this.ctx;
     const l = this.layout;
 
+    this.emitBubbles(input);
+    this.particles.update(input.dtMs);
+
     ctx.fillStyle = INK.bg;
     ctx.fillRect(0, 0, l.w, l.h);
 
+    const shake = this.particles.shakeOffset();
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
+
     this.drawMeter(input);
     this.drawBoard(input);
+    // bubbles sit above the board but below the tray and the floating text,
+    // so a burst reads over the grid without hiding the pieces you can pick up
+    this.particles.draw(ctx);
     this.drawTray(input);
     this.drawFx(input);
+
+    ctx.restore();
 
     if (input.dimmed) {
       ctx.fillStyle = 'rgba(6,10,17,0.72)';
       ctx.fillRect(0, 0, l.w, l.h);
+    }
+  }
+
+  /**
+   * Ambient bubbles drift up behind the grid at all times; the meter releases
+   * more the fuller it is, so a board about to surge is visibly agitated before
+   * the number means anything to the player.
+   */
+  private emitBubbles(input: RenderInput): void {
+    const l = this.layout;
+    const dt = input.dtMs / 1000;
+
+    this.ambientDebt += this.levers.ambientBubblesPerSecond * dt;
+    while (this.ambientDebt >= 1) {
+      this.ambientDebt -= 1;
+      this.particles.bubble(
+        l.boardX + Math.random() * l.boardSize,
+        l.boardY + l.boardSize + 6,
+        1.5 + Math.random() * 3,
+        18 + Math.random() * 26,
+        '#4fd1c5',
+        2600 + Math.random() * 1800,
+      );
+    }
+
+    const fill = clamp01(input.pressureRatio);
+    this.meterDebt += this.levers.meterBubblesPerSecondAtFull * fill * fill * dt;
+    while (this.meterDebt >= 1) {
+      this.meterDebt -= 1;
+      const x = l.boardX + Math.random() * Math.max(l.meterH, l.boardSize * fill);
+      this.particles.bubble(
+        x,
+        l.meterY + l.meterH,
+        1.4 + Math.random() * 2.6,
+        26 + Math.random() * 34,
+        fill > 0.75 ? '#f2614f' : '#f2d35e',
+        700 + Math.random() * 700,
+      );
     }
   }
 
@@ -209,6 +336,19 @@ export class Renderer {
       ctx.fillStyle = grad;
       ctx.globalAlpha = input.pressureWarning ? 0.75 + 0.25 * Math.sin(input.now / 110) : 1;
       ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // a bright meniscus at the waterline, so the eye tracks the level
+    if (fill > 0.02) {
+      const edge = x + Math.max(h, w * fill);
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(edge - 1, y + 1);
+      ctx.lineTo(edge - 1, y + h - 1);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
       ctx.globalAlpha = 1;
     }
 
@@ -259,17 +399,18 @@ export class Renderer {
     // cells
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
-        const v = board.cells[r * SIZE + c]!;
+        const i = r * SIZE + c;
+        const v = board.cells[i]!;
         const x = l.boardX + c * l.cell;
         const y = l.boardY + r * l.cell;
         if (v === EMPTY) {
-          roundRect(ctx, x + 1.5, y + 1.5, l.cell - 3, l.cell - 3, 4);
+          roundRect(ctx, x + 1.5, y + 1.5, l.cell - 3, l.cell - 3, (l.cell - 3) * 0.3);
           ctx.fillStyle = INK.grid;
           ctx.fill();
         } else if (v === BALLAST) {
-          this.drawBallast(x, y, l.cell);
+          this.drawBallast(x, y, l.cell, this.popScale(i, input.now));
         } else {
-          this.drawBlock(x, y, l.cell, HUES[(v - 1) % HUES.length]!, 1);
+          this.drawBlock(x, y, l.cell, HUES[(v - 1) % HUES.length]!, 1, this.popScale(i, input.now));
         }
       }
     }
@@ -293,23 +434,79 @@ export class Renderer {
     }
   }
 
-  private drawBlock(x: number, y: number, size: number, color: string, alpha: number): void {
+  /**
+   * A block is drawn as a fat-cornered bubble: a big corner radius, a bright
+   * top-left gloss and a soft inner shade at the bottom. `scale` drives the
+   * spring-in pop; it is applied around the cell centre so neighbours do not
+   * shift when one block lands.
+   */
+  private drawBlock(
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+    alpha: number,
+    scale = 1,
+  ): void {
     const ctx = this.ctx;
+    const inset = 1.5;
+    const s = size - inset * 2;
+    const radius = s * 0.34; // fat corners: reads as a bubble, not a tile
+
+    ctx.save();
+    if (scale !== 1) {
+      ctx.translate(x + size / 2, y + size / 2);
+      ctx.scale(scale, scale);
+      ctx.translate(-(x + size / 2), -(y + size / 2));
+    }
     ctx.globalAlpha = alpha;
-    roundRect(ctx, x + 1.5, y + 1.5, size - 3, size - 3, 5);
+
+    roundRect(ctx, x + inset, y + inset, s, s, radius);
     ctx.fillStyle = color;
     ctx.fill();
-    // top highlight for a bit of depth
-    ctx.globalAlpha = alpha * 0.33;
-    roundRect(ctx, x + 3, y + 3, size - 6, (size - 6) * 0.42, 4);
+
+    // bottom shade — a touch of volume without a gradient per block
+    ctx.globalAlpha = alpha * 0.18;
+    roundRect(ctx, x + inset, y + inset + s * 0.45, s, s * 0.55, radius * 0.9);
+    ctx.fillStyle = '#061018';
+    ctx.fill();
+
+    // top gloss
+    ctx.globalAlpha = alpha * 0.4;
+    roundRect(ctx, x + inset + s * 0.14, y + inset + s * 0.1, s * 0.72, s * 0.34, s * 0.17);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
+
+    // specular dot — the thing that actually makes it read as wet
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.beginPath();
+    ctx.arc(x + inset + s * 0.28, y + inset + s * 0.26, Math.max(1, s * 0.075), 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
     ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /** Spring-in scale for a cell that was filled at `placedAt`. */
+  private popScale(index: number, now: number): number {
+    const at = this.placedAt[index]!;
+    if (at <= 0) return 1;
+    const t = (now - at) / this.levers.placePopMs;
+    if (t >= 1 || t < 0) return 1;
+    const k = easeOutBack(clamp01(t), 1.2 + this.levers.placePopOvershoot * 4);
+    return 0.55 + 0.45 * k;
   }
 
   /** Ballast reads as inert stone: no highlight, visible hatch, unmistakably not yours. */
-  private drawBallast(x: number, y: number, size: number): void {
+  private drawBallast(x: number, y: number, size: number, scale = 1): void {
     const ctx = this.ctx;
+    ctx.save();
+    if (scale !== 1) {
+      ctx.translate(x + size / 2, y + size / 2);
+      ctx.scale(scale, scale);
+      ctx.translate(-(x + size / 2), -(y + size / 2));
+    }
     roundRect(ctx, x + 1.5, y + 1.5, size - 3, size - 3, 3);
     ctx.fillStyle = '#44506b';
     ctx.fill();
@@ -325,6 +522,7 @@ export class Renderer {
       ctx.lineTo(x + i + size, y + size);
       ctx.stroke();
     }
+    ctx.restore();
     ctx.restore();
   }
 
@@ -343,7 +541,10 @@ export class Renderer {
       if (!piece) continue;
       const beingDragged = input.drag?.trayIndex === slot;
       if (beingDragged) continue;
-      this.drawPieceAt(piece, center.x, center.y, l.trayCell, 1);
+      // staggered spring-in so a refill has a rhythm instead of a blink
+      const t = clamp01((input.now - this.trayPopAt[slot]!) / this.levers.trayPopMs);
+      const scale = t >= 1 ? 1 : 0.4 + 0.6 * easeOutBack(t, 2.2);
+      this.drawPieceAt(piece, center.x, center.y, l.trayCell * scale, 1);
     }
 
     // the dragged piece follows the pointer, offset up so a thumb does not cover it

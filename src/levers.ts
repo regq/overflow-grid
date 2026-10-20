@@ -130,6 +130,26 @@ export interface Levers {
   // ───────────────────────── Juice ───────────────────────────────────────────
   /** why: clear animation length — long enough to feel weighty, short enough not to block the next placement. */
   clearAnimationMs: number;
+  /** why: a block that springs past its size and settles reads as physical; a block that just appears reads as a sprite. */
+  placePopMs: number;
+  /** why: how far past full size a placed block overshoots. Past ~0.35 it stops looking like weight and starts looking like a bug. */
+  placePopOvershoot: number;
+  /** why: tray pieces staggering in gives the refill a rhythm instead of a blink. */
+  trayPopMs: number;
+  /** why: bubbles are the whole visual metaphor — pressure you can see rising. This is the ambient drift behind the grid. */
+  ambientBubblesPerSecond: number;
+  /** why: bubbles released by the meter scale with pressure, so the board gets visibly agitated before a surge. */
+  meterBubblesPerSecondAtFull: number;
+  /** why: a clear should burst, not fade. Bubbles spawned per cleared cell. */
+  burstBubblesPerCell: number;
+  /** why: hard cap on live particles. The single most important number for holding 60 fps on a mid phone. */
+  maxParticles: number;
+  /** why: expanding shock ring on a clear — cheap, reads instantly, scales with how big the clear was. */
+  shockRingMs: number;
+  /** why: the whole board nudging on a surge sells the impact without moving any game state. */
+  screenShakePx: number;
+  /** why: a score that counts up is read; a score that snaps is missed. */
+  scoreTweenMs: number;
   /** why: haptics on clear convert a visual event into a physical one; the single biggest cheap win on mobile. */
   hapticsEnabled: boolean;
   /** why: sound defaults ON for juice but is one tap from OFF and the choice is remembered. */
@@ -236,6 +256,16 @@ export const defaultLevers: Levers = {
 
   // juice
   clearAnimationMs: 260,
+  placePopMs: 190,
+  placePopOvershoot: 0.22,
+  trayPopMs: 260,
+  ambientBubblesPerSecond: 2.4,
+  meterBubblesPerSecondAtFull: 14,
+  burstBubblesPerCell: 2.2,
+  maxParticles: 220,
+  shockRingMs: 420,
+  screenShakePx: 5,
+  scoreTweenMs: 420,
   hapticsEnabled: true,
   soundDefaultOn: true,
 

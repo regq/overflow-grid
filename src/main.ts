@@ -26,6 +26,7 @@ import {
   type Profile,
 } from './progress.js';
 import { Renderer, type DragState, type Fx } from './render.js';
+import { Tween } from './fx.js';
 import { makeRng } from './rng.js';
 import { Telemetry, getInstallId, pickEventStore } from './telemetry.js';
 import { Ui, renderGoal, type SheetButton } from './ui.js';
@@ -58,7 +59,19 @@ const telemetry = new Telemetry({
 let profile: Profile = loadProfile(storage);
 const audio = new Audio(profile.muted || !levers.soundDefaultOn);
 const haptics = new Haptics(levers.hapticsEnabled);
-const renderer = new Renderer(canvas);
+// Respect the OS "reduce motion" setting: keep the game fully playable, drop
+// the decorative motion. The levers stay the single source of truth.
+if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  levers.ambientBubblesPerSecond = 0;
+  levers.meterBubblesPerSecondAtFull = 0;
+  levers.burstBubblesPerCell = 0;
+  levers.screenShakePx = 0;
+  levers.placePopOvershoot = 0;
+}
+
+const renderer = new Renderer(canvas, levers);
+const scoreTween = new Tween(levers.scoreTweenMs);
+let lastShownScore = -1;
 const uiRng = makeRng(Date.now() & 0x7fffffff);
 
 const adNetwork = new MockAdNetwork({ levers, host: ui.adHost() });
@@ -203,6 +216,10 @@ function startGame(resume: Parameters<Game['start']>[0]): void {
   }
   game.start(resume ?? null, banked);
   fx = [];
+  renderer.resetAnimations();
+  renderer.noteTrayRefill(performance.now());
+  scoreTween.snap(game.score);
+  lastShownScore = -1;
   syncHud();
 }
 
@@ -357,7 +374,7 @@ async function playAgain(): Promise<void> {
 // ───────────────────────── hud ─────────────────────────
 
 function syncHud(): void {
-  scoreEl.textContent = game.score.toLocaleString();
+  scoreTween.set(game.score, performance.now());
   bestEl.textContent = levers.showPersonalBestTarget
     ? `best ${profile.bestScore.toLocaleString()}`
     : '';
@@ -466,6 +483,22 @@ function endDrag(event: PointerEvent): void {
 
   audio.play('place', Math.min(6, outcome.combo));
   haptics.fire('place');
+
+  // the cells the piece just occupied spring in
+  renderer.notePlacement(
+    current.piece.cells.map((cell) => ({
+      r: current.target!.r + cell.r,
+      c: current.target!.c + cell.c,
+    })),
+    performance.now(),
+  );
+  if (outcome.trayRefilled) renderer.noteTrayRefill(performance.now());
+  if (outcome.cleared.length > 0) {
+    renderer.noteClear(outcome.cleared, outcome.rows, outcome.cols, performance.now());
+  }
+  if (outcome.surgeCells.length > 0) {
+    renderer.noteSurge(outcome.surgeCells, performance.now());
+  }
 
   if (outcome.cleared.length > 0) {
     pushFx({
@@ -580,6 +613,7 @@ function pushFx(entry: Fx): void {
 
 let lastResizeW = 0;
 let lastResizeH = 0;
+let lastFrameAt = 0;
 
 function frame(now: number): void {
   if (stage.clientWidth !== lastResizeW || stage.clientHeight !== lastResizeH) {
@@ -587,6 +621,18 @@ function frame(now: number): void {
     lastResizeH = stage.clientHeight;
     renderer.resize();
     if (drag) refreshDrag(drag.x, drag.y);
+  }
+
+  // Clamp the delta: a backgrounded tab resumes with a huge gap, and an
+  // unclamped dt would teleport every particle off screen in one step.
+  const dtMs = lastFrameAt === 0 ? 16.7 : Math.min(50, now - lastFrameAt);
+  lastFrameAt = now;
+
+  // the score counts up rather than snapping, so a big clear is legible
+  const shown = Math.round(scoreTween.valueAt(now));
+  if (shown !== lastShownScore) {
+    lastShownScore = shown;
+    scoreEl.textContent = shown.toLocaleString();
   }
 
   fx = fx.filter((entry) => now - entry.startedAt <= entry.durationMs);
@@ -603,6 +649,7 @@ function frame(now: number): void {
     drag,
     fx,
     now,
+    dtMs,
     dimmed: game.status !== 'playing' || ui.isSheetOpen,
   });
 

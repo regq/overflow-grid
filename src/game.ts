@@ -54,6 +54,9 @@ export interface PlaceOutcome {
   cellsCleared: number;
   ballastCleared: number;
   cleared: Cell[];
+  /** which rows/cols cleared — the renderer draws one shock ring per line */
+  rows: number[];
+  cols: number[];
   combo: number;
   surged: boolean;
   surgeCells: Cell[];
@@ -233,6 +236,8 @@ export class Game {
       cellsCleared: 0,
       ballastCleared: 0,
       cleared: [],
+      rows: [],
+      cols: [],
       combo: this.combo,
       surged: false,
       surgeCells: [],
@@ -345,6 +350,8 @@ export class Game {
       cellsCleared: clearResult.cellsCleared,
       ballastCleared: clearResult.ballastCleared,
       cleared: clearResult.cleared,
+      rows: lines.rows.slice(),
+      cols: lines.cols.slice(),
       combo: this.combo,
       surged,
       surgeCells,
