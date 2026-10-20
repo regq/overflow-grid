@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Overflow Grid">
+  <rect width="512" height="512" rx="96" fill="#0d1420"/>
+  <g fill="#1d2838">
+    <rect x="96" y="128" width="72" height="72" rx="12"/>
+    <rect x="176" y="128" width="72" height="72" rx="12"/>
+    <rect x="256" y="128" width="72" height="72" rx="12"/>
+    <rect x="336" y="128" width="72" height="72" rx="12"/>
+    <rect x="96" y="208" width="72" height="72" rx="12"/>
+    <rect x="336" y="208" width="72" height="72" rx="12"/>
+    <rect x="96" y="288" width="72" height="72" rx="12"/>
+    <rect x="176" y="288" width="72" height="72" rx="12"/>
+  </g>
+  <g>
+    <rect x="176" y="208" width="72" height="72" rx="12" fill="#5ec8f2"/>
+    <rect x="256" y="208" width="72" height="72" rx="12" fill="#7ee0a8"/>
+    <rect x="256" y="288" width="72" height="72" rx="12" fill="#f2d35e"/>
+    <rect x="336" y="288" width="72" height="72" rx="12" fill="#f2614f"/>
+  </g>
+  <rect x="96" y="392" width="312" height="26" rx="13" fill="#17202f"/>
+  <rect x="96" y="392" width="214" height="26" rx="13" fill="#4fd1c5"/>
+</svg>

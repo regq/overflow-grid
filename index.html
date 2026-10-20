@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="theme-color" content="#0d1420" />
+    <meta name="description" content="Overflow Grid - an 8x8 block puzzle where the pressure meter is the real opponent. Vent it or it buries you." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Overflow Grid</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="hud">
+        <div class="hud-score">
+          <strong id="score">0</strong>
+          <span id="best">best 0</span>
+        </div>
+        <div class="hud-actions">
+          <button id="streak" class="chip" type="button" aria-label="Daily streak">
+            <span aria-hidden="true">&#9650;</span><span id="streak-n">0</span>
+          </button>
+          <button id="mute" class="chip" type="button" aria-label="Toggle sound">
+            <span id="mute-icon">on</span>
+          </button>
+          <button id="menu" class="chip" type="button" aria-label="Menu">&#8943;</button>
+        </div>
+      </header>
+
+      <div id="goal" aria-label="Weekly goal">
+        <div class="bar"><i id="goal-fill"></i></div>
+        <span id="goal-label">weekly goal</span>
+      </div>
+
+      <div id="stage">
+        <canvas id="c" aria-label="Game board"></canvas>
+        <div id="combo-badge" class="hidden"></div>
+      </div>
+
+      <div id="modal-root"></div>
+      <div id="toast-root" aria-live="polite"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
