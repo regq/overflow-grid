@@ -9,7 +9,7 @@ fill from the bottom up and only leave via a line clear.
 
 Original work: no copied names, art, sounds or UI.
 
-- **Play:** see the deployed URL in [REPORT.md](REPORT.md)
+- **Play:** https://regq.github.io/overflow-grid/
 - **Report:** [REPORT.md](REPORT.md) — the twist, the lever table, the ad spec,
   the numbers to watch
 - **Tuning:** [TUNING.md](TUNING.md) — how to change any lever without touching

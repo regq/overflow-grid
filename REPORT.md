@@ -1,11 +1,15 @@
 # Overflow Grid — build report
 
-**Live URL:** _pending — filled in once GitHub Pages reports a deployment._
+**Live URL:** https://regq.github.io/overflow-grid/
 **Repo:** https://github.com/regq/overflow-grid
 **Built:** 2026-10-20, overnight, unattended.
 **Status:** `npm test` 120/120 passing · `tsc --noEmit` clean · production bundle
-54 kB raw / 18 kB gzipped · core loop, surge, continue and chest flows verified
-by hand in a 375x812 mobile viewport.
+54 kB raw / 18 kB gzipped · deployed via GitHub Actions (tests gate the deploy) ·
+service worker active on the live origin, manifest and icons served · core loop,
+surge, continue and chest flows verified by hand in a 375x812 mobile viewport,
+then re-verified against the deployed build.
+
+No FAILED steps: every part of the brief completed.
 
 ---
 
